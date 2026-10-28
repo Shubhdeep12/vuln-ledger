@@ -1,0 +1,16 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
+  "name": "vuln-ledger",
+  "description": "Know about vulnerable or malicious dependencies the day the advisory lands, hear about each one once.",
+  "owner": {
+    "name": "Shubhdeep Chhabra"
+  },
+  "plugins": [
+    {
+      "name": "vuln-ledger",
+      "description": "Dependency vulnerability guard with a memory for Claude Code.",
+      "source": "./",
+      "category": "security"
+    }
+  ]
+}

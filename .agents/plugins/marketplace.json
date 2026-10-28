@@ -1,0 +1,21 @@
+{
+  "name": "vuln-ledger",
+  "interface": {
+    "displayName": "Vuln Ledger"
+  },
+  "plugins": [
+    {
+      "name": "vuln-ledger",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Shubhdeep12/vuln-ledger.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Security"
+    }
+  ]
+}

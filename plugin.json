@@ -1,0 +1,5 @@
+{
+  "name": "vuln-ledger",
+  "version": "0.1.0",
+  "description": "Dependency vulnerability and malicious-package guard with a memory for Antigravity and Grok: OSV checks at session start, package vetting before install, change-only reports."
+}

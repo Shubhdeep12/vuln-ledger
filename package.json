@@ -1,0 +1,26 @@
+{
+  "name": "vuln-ledger",
+  "version": "0.1.0",
+  "description": "Dependency vulnerability and malicious-package guard with a memory, for AI coding agents and the terminal.",
+  "license": "MIT",
+  "homepage": "https://github.com/Shubhdeep12/vuln-ledger",
+  "repository": { "type": "git", "url": "git+https://github.com/Shubhdeep12/vuln-ledger.git" },
+  "author": "Shubhdeep Chhabra",
+  "type": "module",
+  "bin": { "vuln-ledger": "skills/vuln-ledger/scripts/vuln-ledger.mjs" },
+  "engines": { "node": ">=18.17" },
+  "files": ["skills/", "hooks/", "extensions/", ".opencode/", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test",
+    "sync": "node scripts/sync-mirrors.mjs",
+    "check": "node scripts/sync-mirrors.mjs --check && node scripts/check-manifests.mjs && node --test"
+  },
+  "keywords": ["pi-package", "security", "vulnerabilities", "cve", "osv", "supply-chain", "agent-skills", "claude-code", "codex"],
+  "omp": {
+    "extensions": ["./extensions/vuln-ledger.ts"]
+  },
+  "pi": {
+    "extensions": ["./extensions/vuln-ledger.ts"],
+    "skills": ["./skills"]
+  }
+}

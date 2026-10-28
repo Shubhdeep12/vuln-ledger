@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["18", "20", "22", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Mirrors in sync
+        run: node scripts/sync-mirrors.mjs --check
+      - name: Manifests aligned
+        run: node scripts/check-manifests.mjs
+      - name: Tests (offline, mock APIs)
+        run: node --test
+
+  plugin-load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate and install the plugin into a scratch config
+        run: |
+          export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/claude-scratch"
+          mkdir -p "$CLAUDE_CONFIG_DIR"
+          claude plugin validate .
+          claude plugin marketplace add "$GITHUB_WORKSPACE"
+          claude plugin install vuln-ledger@vuln-ledger
+          claude plugin list | tee plugin-list.txt
+          grep -q "enabled" plugin-list.txt || { echo "::error::plugin failed to load"; exit 1; }
+
+  smoke-live:
+    # One real query against OSV so API drift shows up. Non-blocking.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Vet a known-malicious and a known-good package
+        run: |
+          set +e
+          node skills/vuln-ledger/scripts/vuln-ledger.mjs vet npm:lodahs; test $? -eq 20 || exit 1
+          node skills/vuln-ledger/scripts/vuln-ledger.mjs vet npm:express@4.21.2; test $? -ne 20 || exit 1

@@ -1,0 +1,70 @@
+# Daily dependency check for your repository.
+# Copy to .github/workflows/vuln-ledger-daily.yml.
+#
+# Catches advisories published on days nobody opens an agent session. The
+# ledger lives in the Actions cache, so the issue only gets a new comment when
+# something changed: new, escalated, fix available, or resolved.
+#
+# Pin the tool to a tag or commit you have reviewed (the #ref below).
+
+name: vuln-ledger daily
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore ledger
+        uses: actions/cache/restore@v4
+        with:
+          path: .vuln-ledger-state
+          key: vuln-ledger-${{ github.run_id }}
+          restore-keys: vuln-ledger-
+
+      - name: Scan
+        id: scan
+        env:
+          VULN_LEDGER_HOME: ${{ github.workspace }}/.vuln-ledger-state
+        run: |
+          set +e
+          npx -y "github:Shubhdeep12/vuln-ledger#v0.1.0" scan --quiet > report.md
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          cat report.md
+          if [ "$code" = "30" ]; then echo "::warning::vuln-ledger check incomplete; see log"; fi
+          if [ "$code" = "1" ]; then exit 1; fi
+          exit 0
+
+      - name: Save ledger
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .vuln-ledger-state
+          key: vuln-ledger-${{ github.run_id }}
+
+      - name: Open or update the tracking issue
+        if: steps.scan.outputs.code == '20' || steps.scan.outputs.code == '10'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="vuln-ledger: dependency changes to review"
+          num=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body-file report.md
+          else
+            gh issue create --title "$title" --body-file report.md
+          fi

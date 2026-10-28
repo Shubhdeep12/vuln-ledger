@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+*.tmp
+.env
+.env.*
+# Local ledgers. Commit .vuln-ledger.json only in projects that opt into shared decisions.
+.vuln-ledger.local.json
+evals/runs/

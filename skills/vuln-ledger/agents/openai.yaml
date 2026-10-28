@@ -1,0 +1,7 @@
+interface:
+  display_name: "Vuln Ledger"
+  short_description: "Dependency CVE and malware guard with memory"
+  default_prompt: "Use $vuln-ledger to check this project's dependencies and report only what changed."
+
+policy:
+  allow_implicit_invocation: true
