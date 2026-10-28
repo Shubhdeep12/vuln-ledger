@@ -1,6 +1,6 @@
 {
   "name": "vuln-ledger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Dependency vulnerability and malicious-package guard with a memory: OSV checks, package vetting, change-only reports.",
   "license": "MIT",
   "homepage": "https://github.com/Shubhdeep12/vuln-ledger",

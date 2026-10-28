@@ -41,7 +41,7 @@ jobs:
           VULN_LEDGER_HOME: ${{ github.workspace }}/.vuln-ledger-state
         run: |
           set +e
-          npx -y "github:Shubhdeep12/vuln-ledger#v0.1.0" scan --quiet > report.md
+          npx -y "github:Shubhdeep12/vuln-ledger#v0.2.0" scan --quiet > report.md
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat report.md

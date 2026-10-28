@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-28)
+
+- Claude Code slash commands: `/vuln-ledger:scan`, `/vuln-ledger:vet`, `/vuln-ledger:status`.
+
 ## 0.1.0 (2026-10-28)
 
 First release.

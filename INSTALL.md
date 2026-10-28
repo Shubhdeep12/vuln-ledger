@@ -45,7 +45,8 @@ claude plugin install vuln-ledger@vuln-ledger
 
 Restart Claude Code. You get:
 
-- the `vuln-ledger` skill (auto-invoked, or type `/vuln-ledger`)
+- the `vuln-ledger` skill (auto-invoked when dependencies or security come up)
+- commands: `/vuln-ledger:scan`, `/vuln-ledger:vet <eco:pkg>`, `/vuln-ledger:status`
 - a `SessionStart` hook: throttled scan, silent unless something changed
 - a `PreToolUse` hook on Bash: vets packages before `npm i`, `composer require`, `pip install`, etc.
 
@@ -55,7 +56,7 @@ Restart Claude Code. You get:
 claude plugin list
 ```
 
-Then in a project with a lockfile, start a session and type `/vuln-ledger`.
+Then in a project with a lockfile, start a session and type `/vuln-ledger:scan`.
 
 ### Update
 

@@ -124,6 +124,8 @@ lockfiles ──► inventory ──► OSV.dev querybatch ──► advisory de
 
 Exit codes: `0` nothing new · `10` lower-severity changes · `20` action needed · `30` check incomplete.
 
+In Claude Code the common ones are slash commands: `/vuln-ledger:scan`, `/vuln-ledger:vet npm:pkg@1.2.3`, `/vuln-ledger:status`.
+
 ## Harness support
 
 | Harness | Skill | Session-start check | Pre-install guard |

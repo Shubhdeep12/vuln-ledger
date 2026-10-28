@@ -1,6 +1,6 @@
 {
   "name": "vuln-ledger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Dependency vulnerability and malicious-package guard with a memory for Gemini CLI: reports only what changed since the last check.",
   "contextFileName": "GEMINI.md"
 }

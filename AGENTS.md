@@ -46,7 +46,7 @@ appear in documentation; run only what the user-approved task needs.
 
 | Runtime | Read first |
 | --- | --- |
-| Claude Code | `.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/session-start.mjs`, `hooks/pre-install.mjs` |
+| Claude Code | `.claude-plugin/plugin.json`, `commands/`, `hooks/hooks.json`, `hooks/session-start.mjs`, `hooks/pre-install.mjs` |
 | Codex | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `skills/vuln-ledger/agents/openai.yaml` |
 | Grok, Antigravity | `plugin.json`, `hooks/hooks.json` |
 | OpenCode | `.opencode/plugins/vuln-ledger.mjs`, `.opencode/command/vuln-ledger.md` |
