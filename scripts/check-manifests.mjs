@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+// Normalize CRLF so the checks also pass on a Windows checkout without .gitattributes.
+const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n');
 const json = (rel) => JSON.parse(read(rel));
 
 const version = json('package.json').version;

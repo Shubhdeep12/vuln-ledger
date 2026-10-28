@@ -1,0 +1,4 @@
+# Keep LF everywhere: SKILL.md frontmatter, shell hooks and lockfile fixtures
+# must look the same on every OS, including Windows checkouts.
+* text=auto eol=lf
+*.png binary
