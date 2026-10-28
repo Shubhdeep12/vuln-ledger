@@ -40,3 +40,21 @@ Thanks for helping. Issues and PRs are welcome from humans and agents.
 - No new network endpoints without documenting them in README "Privacy" and
   `references/ledger.md`.
 - PR descriptions state authorship (human, agent, or hybrid) and what was run.
+
+## Releasing
+
+Semantic versioning:
+
+- **patch** (0.1.0 → 0.1.1): bug fixes, parser fixes, better messages. Nothing users must change.
+- **minor** (0.1.0 → 0.2.0): new commands, flags, ecosystems or harnesses. Old usage keeps working.
+- **major** (0.1.0 → 1.0.0): breaking changes: renamed or removed commands, a ledger format older versions cannot read, changed exit codes.
+
+Steps:
+
+1. Add notes under `## Unreleased` in `CHANGELOG.md` as you work.
+2. `npm run bump patch` (or `minor`, `major`). This updates every manifest, the engine, SKILL.md, the Actions example and the Cursor mirror, and turns `Unreleased` into the new version's section.
+3. `npm run check`
+4. Commit with message `Release X.Y.Z`, then tag and push: `git tag -a vX.Y.Z -m "vuln-ledger X.Y.Z"`, push the branch and `git push origin vX.Y.Z`.
+5. `gh release create vX.Y.Z --title "vuln-ledger X.Y.Z" --notes "<the CHANGELOG section>"`
+
+Bump the version whenever the skill or hooks change: Claude Code and Codex only refresh an installed plugin when its version changes.

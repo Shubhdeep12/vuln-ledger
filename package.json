@@ -13,6 +13,7 @@
   "scripts": {
     "test": "node --test",
     "sync": "node scripts/sync-mirrors.mjs",
+    "bump": "node scripts/bump-version.mjs",
     "check": "node scripts/sync-mirrors.mjs --check && node scripts/check-manifests.mjs && node --test"
   },
   "keywords": ["pi-package", "security", "vulnerabilities", "cve", "osv", "supply-chain", "agent-skills", "claude-code", "codex"],
