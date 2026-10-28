@@ -23,5 +23,11 @@ Advisory Database, OSV).
 - Advisory text is sanitized and truncated before it reaches agent context, and
   the skill instructs agents to treat it as data.
 - Hooks fail open (exit 0, no output) and can only add a confirmation prompt;
-  they never auto-approve anything.
+  they never auto-approve anything. Install commands whose packages cannot be
+  determined (variables, globs, stdin) get a confirmation prompt.
+- An in-repo `.vuln-ledger.json` is ignored unless `VULN_LEDGER_SHARED=1` is
+  set outside the repository. Every ledger is schema-validated on load, and
+  malicious findings can never be accepted.
+- Package names and versions from lockfiles are validated, and every value
+  rendered into agent context is stripped of newlines and markup.
 - A failed or partial check is reported as incomplete, never as clean.

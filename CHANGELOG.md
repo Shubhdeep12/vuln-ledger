@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Security: an in-repo `.vuln-ledger.json` is used only with `VULN_LEDGER_SHARED=1`; ledgers are schema-validated on load; malicious findings cannot be accepted and are reminded daily.
+- Security: lockfile names and versions are validated, and all lockfile- and ledger-derived values are sanitized before reaching agent context.
+- Security: the pre-install guard vets every package (asks above 20), handles `env`, `xargs`, `sh -c`, `eval`, command substitution, global options, and runners (`npx`, `bunx`, `pnpm dlx`, `uvx`, `pipx`), and asks when a package cannot be determined.
+
 ## 0.1.0 (2026-10-28)
 
 First release.

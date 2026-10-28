@@ -61,10 +61,16 @@ export function autoChecksDisabled() {
   return process.env.VULN_LEDGER_DISABLE === '1' || fs.existsSync(path.join(configHome(), 'disabled'));
 }
 
+// An in-repo ledger is controlled by whoever can commit to the repo: it could
+// pre-mark findings as reported or accepted. Use it only on explicit opt-in.
+export function sharedLedgerAllowed() {
+  return process.env.VULN_LEDGER_SHARED === '1';
+}
+
 export function ledgerPathFor(root, explicit) {
   if (explicit) return path.resolve(explicit);
   const shared = path.join(root, '.vuln-ledger.json');
-  if (fs.existsSync(shared)) return shared;
+  if (sharedLedgerAllowed() && fs.existsSync(shared)) return shared;
   let real = root;
   try {
     real = fs.realpathSync(root);
@@ -104,10 +110,39 @@ export function newLedger(root) {
   };
 }
 
+const STATUSES = new Set(['open', 'accepted', 'resolved']);
+const isStr = (v, max = 256) => typeof v === 'string' && v.length <= max;
+const isTime = (v) => v == null || (isStr(v, 40) && !Number.isNaN(Date.parse(v)));
+
+// Drop anything that does not look like an entry this tool wrote. A ledger can
+// be hand-edited or (with VULN_LEDGER_SHARED=1) come from the repository.
+function validEntry(key, e) {
+  return (
+    e && typeof e === 'object' &&
+    isStr(e.id, 80) && isStr(e.ecosystem, 40) && isStr(e.package, 256) && isStr(e.installed, 80) &&
+    key === `${e.id}|${e.ecosystem}|${e.package}` &&
+    STATUSES.has(e.status) && RANK[e.level] !== undefined &&
+    Array.isArray(e.aliases ?? []) && (e.aliases ?? []).every((a) => isStr(a, 80)) &&
+    (e.fixed == null || isStr(e.fixed, 80)) &&
+    (e.score == null || (typeof e.score === 'number' && e.score >= 0 && e.score <= 10)) &&
+    ['notifiedAt', 'remindedAt', 'firstSeen', 'lastSeen', 'resolvedAt'].every((k) => isTime(e[k])) &&
+    (e.decision == null || (typeof e.decision === 'object' && isStr(e.decision.reason ?? '', 500) && isTime(e.decision.at) && isTime(e.decision.until)))
+  );
+}
+
 export function loadLedger(file, root) {
   const data = readJSON(file);
-  if (!data || data.schema !== LEDGER_SCHEMA || typeof data.findings !== 'object') return newLedger(root);
-  data.history ||= [];
+  if (!data || data.schema !== LEDGER_SCHEMA || !data.findings || typeof data.findings !== 'object') return newLedger(root);
+  const findings = {};
+  for (const [key, e] of Object.entries(data.findings)) {
+    if (!validEntry(key, e)) continue;
+    // Malicious findings can never be accepted, whoever wrote the ledger.
+    if (e.status === 'accepted' && (e.level === 'MALICIOUS' || e.malicious)) e.status = 'open';
+    findings[key] = e;
+  }
+  data.findings = findings;
+  data.history = Array.isArray(data.history) ? data.history.slice(-500) : [];
+  if (!isTime(data.lastNetworkScan)) data.lastNetworkScan = null;
   return data;
 }
 
@@ -152,6 +187,17 @@ export function sanitize(text, max = 90) {
   const clean = String(text ?? '')
     .replace(/[\u0000-\u001f\u007f​-‏‪-‮]+/g, ' ')
     .replace(/[|`<>[\]{}*_#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+// For values from lockfiles and the ledger (names, versions, paths): keep
+// package-name punctuation, but no newlines, table pipes, or markup.
+export function cell(text, max = 80) {
+  const clean = String(text ?? '')
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2028\u2029]+/g, ' ')
+    .replace(/[|`<>]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
@@ -730,6 +776,11 @@ function directNames(dir, base) {
   return null;
 }
 
+// Real package names and versions across ecosystems fit these. Anything else
+// (spaces, newlines, markup) is rejected before it can reach agent context.
+const VALID_NAME = /^[\w@.\/:+~-]{1,214}$/;
+const VALID_VERSION = /^[\w.+~:-]{1,80}$/;
+
 export function buildInventory(root, files) {
   const byKey = new Map();
   const notes = [];
@@ -748,7 +799,10 @@ export function buildInventory(root, files) {
     }
     if (pkgs.unpinned) notes.push(`${rel}: ${pkgs.unpinned} unpinned requirement(s) skipped. Pin them or check a lockfile.`);
     const direct = directNames(path.dirname(file), base);
+    const invalid = pkgs.filter((p) => !VALID_NAME.test(String(p.name)) || !VALID_VERSION.test(String(p.version)));
+    if (invalid.length) notes.push(`${rel}: skipped ${invalid.length} entr${invalid.length === 1 ? 'y' : 'ies'} with malformed names or versions.`);
     for (const p of pkgs) {
+      if (invalid.includes(p)) continue;
       const name = normName(ecosystem, p.name);
       const isDirect = p.direct ?? (direct ? direct.has(name) || direct.has(p.name) : null);
       const key = `${ecosystem}|${name}|${p.version}`;
@@ -1031,6 +1085,11 @@ export function reconcile(ledger, findings, inventory, { now = new Date(), compl
     }
     const escalated =
       RANK[f.level] > RANK[before.level] || (f.kev && !before.kev) || (f.malicious && before.level !== 'MALICIOUS');
+    if (entry.status === 'accepted' && f.malicious) {
+      entry.status = 'open';
+      events.push({ type: 'escalated', key: f.key, why: 'malicious packages cannot be accepted' });
+      continue;
+    }
     if (entry.status === 'accepted') {
       if (entry.decision?.until && entry.decision.until < iso) {
         entry.status = 'open';
@@ -1082,7 +1141,7 @@ export function reminders(ledger, events, { now = new Date(), every = 7 * DAY } 
   for (const [key, e] of Object.entries(ledger.findings)) {
     if (already.has(key) || e.status !== 'open' || !e.notifiedAt || !isBlocking(e)) continue;
     const last = e.remindedAt || e.notifiedAt;
-    if (now - Date.parse(last) >= every) out.push({ type: 'reminder', key, why: `undecided since ${day(e.notifiedAt)}` });
+    if (now - Date.parse(last) >= (e.level === 'MALICIOUS' ? Math.min(every, DAY) : every)) out.push({ type: 'reminder', key, why: `undecided since ${day(e.notifiedAt)}` });
   }
   return out;
 }
@@ -1213,7 +1272,7 @@ function exitFor(ledger, events, complete) {
 
 function severityCell(e) {
   if (e.malicious) return 'MALICIOUS';
-  const bits = [e.score != null ? `${e.level} ${e.score}` : e.level];
+  const bits = [typeof e.score === 'number' ? `${e.level} ${e.score}` : e.level];
   if (e.kev) bits.push('KEV: exploited');
   if (typeof e.epss === 'number' && e.epss >= 0.01) bits.push(`EPSS ${Math.round(e.epss * 100)}%`);
   return bits.join(' · ');
@@ -1225,13 +1284,14 @@ function scopeCell(e) {
 }
 
 function advisoryCell(e) {
-  const alt = e.aliases.find((a) => a.startsWith('CVE-')) || e.aliases.find((a) => a.startsWith('GHSA-'));
-  return alt ? `${e.id} (${alt})` : e.id;
+  const aliases = e.aliases || [];
+  const alt = aliases.find((a) => a.startsWith('CVE-')) || aliases.find((a) => a.startsWith('GHSA-'));
+  return cell(alt ? `${e.id} (${alt})` : e.id, 90);
 }
 
 function row(e, why) {
-  const fix = e.malicious ? 'remove / pin a clean version' : e.fixed ? `${e.fixed} (${e.bump})` : 'no fix yet';
-  return `| ${e.package} (${e.ecosystem}) | ${e.installed} | ${fix} | ${severityCell(e)} | ${advisoryCell(e)} | ${why} | ${scopeCell(e)} |`;
+  const fix = e.malicious ? 'remove / pin a clean version' : e.fixed ? `${cell(e.fixed, 40)} (${cell(e.bump, 24)})` : 'no fix yet';
+  return `| ${cell(e.package, 80)} (${cell(e.ecosystem, 20)}) | ${cell(e.installed, 40)} | ${fix} | ${severityCell(e)} | ${advisoryCell(e)} | ${cell(why, 120)} | ${scopeCell(e)} |`;
 }
 
 const HEADER = '| Package | Installed | Fix | Severity | Advisory | What changed | Scope |\n|---|---|---|---|---|---|---|';
@@ -1254,7 +1314,7 @@ export function renderReport(result, { all = false, quiet = false } = {}) {
   const lines = [];
   if (result.nothingToScan) {
     if (quiet) return '';
-    return `vuln-ledger: no lockfiles found under ${result.root}. Nothing to check.${notes.length ? '\n' + notes.map((n) => `- ${n}`).join('\n') : ''}`;
+    return `vuln-ledger: no lockfiles found under ${cell(result.root, 200)}. Nothing to check.${notes.length ? '\n' + notes.map((n) => `- ${cell(n, 240)}`).join('\n') : ''}`;
   }
   const open = Object.values(ledger.findings).filter((e) => e.status === 'open');
   const accepted = Object.values(ledger.findings).filter((e) => e.status === 'accepted');
@@ -1265,7 +1325,7 @@ export function renderReport(result, { all = false, quiet = false } = {}) {
   const inv = ledger.inventory;
   const ecos = inv ? Object.entries(inv.byEcosystem).map(([k, v]) => `${k} ${v}`).join(', ') : '';
   lines.push(
-    `vuln-ledger · ${path.basename(result.root)} · ${inv ? `${inv.count} packages (${ecos})` : 'inventory unknown'} · ${result.source} · ${stamp(now.toISOString())}`,
+    `vuln-ledger · ${cell(path.basename(result.root), 60)} · ${inv ? `${inv.count} packages (${ecos})` : 'inventory unknown'} · ${result.source} · ${stamp(now.toISOString())}`,
   );
 
   const loud = events.filter((e) => e.type !== 'resolved' && e.type !== 'reminder').sort(bySeverity(ledger));
@@ -1307,14 +1367,14 @@ export function renderReport(result, { all = false, quiet = false } = {}) {
     lines.push('', '### Resolved since last check');
     for (const ev of resolved) {
       const e = ledger.findings[ev.key];
-      lines.push(`- ${e.package} ${e.id}: ${ev.why}`);
+      lines.push(`- ${cell(e.package)} ${cell(e.id, 40)}: ${cell(ev.why, 120)}`);
     }
   }
   if (remind.length) {
     lines.push('', '### Still open and undecided (reminder, shown at most weekly)');
     for (const ev of remind) {
       const e = ledger.findings[ev.key];
-      lines.push(`- ${e.package} ${e.installed}: ${e.id} ${severityCell(e)}, fix ${e.fixed || 'none yet'}; ${ev.why}`);
+      lines.push(`- ${cell(e.package)} ${cell(e.installed, 40)}: ${cell(e.id, 40)} ${severityCell(e)}, fix ${cell(e.fixed, 40) || 'none yet'}; ${cell(ev.why, 120)}`);
     }
   }
   if (all && known.length) {
@@ -1323,9 +1383,9 @@ export function renderReport(result, { all = false, quiet = false } = {}) {
   }
   if (all && accepted.length) {
     lines.push('', '### Accepted risks');
-    for (const e of accepted) lines.push(`- ${e.package} ${e.installed} ${e.id} ${e.level}: "${sanitize(e.decision?.reason, 80)}" until ${day(e.decision?.until) || 'no expiry'}`);
+    for (const e of accepted) lines.push(`- ${cell(e.package)} ${cell(e.installed, 40)} ${cell(e.id, 40)} ${e.level}: "${sanitize(e.decision?.reason, 80)}" until ${e.decision?.until ? day(e.decision.until) : 'no expiry'}`);
   }
-  if (notes.length) lines.push('', '### Notes', ...[...new Set(notes)].map((n) => `- ${n}`));
+  if (notes.length) lines.push('', '### Notes', ...[...new Set(notes)].map((n) => `- ${cell(n, 240)}`));
   if (!complete) lines.push('', 'Check incomplete: report it as such, never as "no vulnerabilities".');
   return lines.join('\n');
 }
@@ -1370,6 +1430,7 @@ export function acceptFindings(ledger, refs, { reason, until, pkg, now = new Dat
   const matched = [];
   for (const ref of refs) {
     for (const e of matchEntries(ledger, ref, pkg)) {
+      if (e.level === 'MALICIOUS' || e.malicious) continue; // an incident, not a risk to accept
       e.status = 'accepted';
       e.decision = { reason, at: now.toISOString(), until: until || null, by: 'user' };
       ledger.history.push({ at: now.toISOString(), type: 'accepted', key: e.key, level: e.level });
@@ -1546,68 +1607,284 @@ export async function vetPackage(spec, { now = new Date(), cooldown = 2 * DAY } 
   return { spec: { ...spec, version }, verdict, reasons, cautions, vulns, facts };
 }
 
-// Pull package specs out of a shell command that adds dependencies.
-export function parseInstallCommand(command) {
-  const specs = [];
-  const segments = String(command || '').split(/&&|\|\||;|\|/);
-  for (const seg of segments) {
-    const tokens = (seg.match(/"[^"]*"|'[^']*'|\S+/g) || []).map((t) => t.replace(/^["']|["']$/g, ''));
-    while (tokens.length && (/^\w+=/.test(tokens[0]) || ['sudo', 'command', 'exec', 'time'].includes(tokens[0]))) tokens.shift();
-    const [tool, sub, ...rest] = tokens;
-    let eco = null;
-    let args = [];
-    const after = (list) => list.filter((t) => !t.startsWith('-'));
-    if (['npm', 'pnpm', 'yarn', 'bun'].includes(tool) && ['i', 'install', 'add', 'isntall'].includes(sub)) {
-      eco = 'npm';
-      args = after(rest);
-    } else if (tool === 'yarn' && sub === 'global' && rest[0] === 'add') {
-      eco = 'npm';
-      args = after(rest.slice(1));
-    } else if (tool === 'composer' && ['require', 'req', 'r'].includes(sub)) {
-      eco = 'Packagist';
-      args = after(rest).filter((t) => t.includes('/'));
-    } else if (/^pip3?$/.test(tool) && sub === 'install') {
-      eco = 'PyPI';
-      args = pipArgs(rest);
-    } else if (/^python3?$/.test(tool) && sub === '-m' && /^pip3?$/.test(rest[0]) && rest[1] === 'install') {
-      eco = 'PyPI';
-      args = pipArgs(rest.slice(2));
-    } else if (tool === 'uv' && (sub === 'add' || (sub === 'pip' && rest[0] === 'install'))) {
-      eco = 'PyPI';
-      args = pipArgs(sub === 'add' ? rest : rest.slice(1));
-    } else if (['poetry', 'pdm'].includes(tool) && sub === 'add') {
-      eco = 'PyPI';
-      args = pipArgs(rest);
-    } else if (tool === 'pipenv' && sub === 'install') {
-      eco = 'PyPI';
-      args = pipArgs(rest);
-    } else if (tool === 'cargo' && ['add', 'install'].includes(sub)) {
-      eco = 'crates.io';
-      args = after(rest);
-    } else if (tool === 'go' && ['get', 'install'].includes(sub)) {
-      eco = 'Go';
-      args = after(rest).filter((t) => t.includes('.') && !t.startsWith('.'));
-    } else if ((tool === 'gem' && sub === 'install') || (tool === 'bundle' && sub === 'add')) {
-      eco = 'RubyGems';
-      const vi = rest.findIndex((t) => t === '-v' || t === '--version');
-      args = after(rest.filter((_, i) => i !== vi + 1 || vi < 0));
-      if (vi >= 0 && args[0] && rest[vi + 1]) args[0] = `${args[0]}@${rest[vi + 1]}`;
-    } else if (tool === 'dotnet' && sub === 'add' && rest[0] === 'package') {
-      eco = 'NuGet';
-      args = after(rest.slice(1)).slice(0, 1);
-    } else if (['dart', 'flutter'].includes(tool) && sub === 'pub' && rest[0] === 'add') {
-      eco = 'Pub';
-      args = after(rest.slice(1));
+// Pull package specs out of a shell command that adds or runs dependencies.
+// Returns an array of specs with an `unparsed` list: install-like arguments
+// whose package cannot be determined (variables, globs, stdin). Callers should
+// treat a non-empty `unparsed` as "ask", never as "safe".
+// Wrappers that run another command, with the options that consume a value.
+const WRAPPERS = {
+  sudo: ['-u', '-g', '-C', '-h', '-p', '-r', '-t', '-U', '-D', '-T', '--user', '--group', '--host', '--prompt', '--role', '--type', '--other-user', '--chdir', '--close-from', '--command-timeout'],
+  doas: ['-u', '-C'],
+  nice: ['-n', '--adjustment'],
+  ionice: ['-c', '-n', '-p', '--class', '--classdata'],
+  stdbuf: ['-i', '-o', '-e'],
+  timeout: ['-s', '--signal', '-k', '--kill-after'],
+  time: ['-f', '-o', '--format', '--output'],
+  xargs: ['-n', '-I', '-i', '-L', '-l', '-P', '-s', '-d', '-E', '-e', '-a', '--max-args', '--replace', '--max-lines', '--max-procs', '--max-chars', '--delimiter', '--eof', '--arg-file'],
+  env: ['-u', '--unset', '-C', '--chdir'],
+  command: [], exec: ['-a'], builtin: [], nohup: [],
+};
+const WRAPPER_POSITIONAL = { timeout: 1 }; // `timeout 30 npm i x`
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+const VALUE_OPTS = new Set([
+  '--prefix', '--cwd', '-C', '--dir', '--filter', '-F', '--workspace', '--working-dir', '-d',
+  '--registry', '--userconfig', '--manifest-path', '--directory', '--project', '--config',
+]);
+const SKIP_ARG = /^(\.|\/|~|file:|git[+:]|https?:|link:|workspace:)/;
+const DYNAMIC = /[$*?{}%\\]/;
+const INSTALL_WORDS = /\b(install|add|require|req|get|dlx|exec|isntall|in|i|x)\b|npx|bunx|pnpx|uvx|pipx/;
+// npm accepts any unambiguous abbreviation of "install", plus common typos.
+const NPM_INSTALL = new Set(['i', 'in', 'ins', 'inst', 'insta', 'instal', 'install', 'isnt', 'isnta', 'isntal', 'isntall', 'add']);
+// npm subcommands that do not add packages. Anything else is treated as unknown.
+const NPM_SAFE = new Set([
+  'run', 'run-script', 'rum', 'urn', 'test', 't', 'tst', 'start', 'stop', 'restart', 'ci', 'clean-install', 'ic', 'install-clean', 'isntall-clean',
+  'install-ci-test', 'cit', 'ls', 'list', 'll', 'la', 'view', 'v', 'info', 'show', 'outdated', 'audit', 'publish', 'pack',
+  'version', 'config', 'c', 'get', 'set', 'cache', 'uninstall', 'un', 'remove', 'rm', 'r', 'unlink',
+  'update', 'up', 'upgrade', 'udpate', 'prune', 'dedupe', 'ddp', 'rebuild', 'rb', 'doctor', 'help', 'help-search', 'login', 'logout', 'whoami',
+  'adduser', 'owner', 'access', 'team', 'token', 'search', 's', 'find', 'se', 'explore', 'edit', 'docs', 'home', 'bugs', 'repo', 'fund',
+  'pkg', 'query', 'root', 'bin', 'prefix', 'sbom', 'shrinkwrap', 'star', 'stars', 'unstar', 'deprecate', 'dist-tag', 'diff', 'hook', 'org',
+  'ping', 'profile', 'completion', 'explain', 'why', 'undeprecate',
+]);
+
+// Split a command line into simple-command segments on ; & | && || newlines
+// and parentheses, outside quotes, and pull out $(...) / `...` bodies.
+function shellSegments(command) {
+  const inner = [];
+  const text = String(command || '').replace(/\$\(([^()]*)\)|`([^`]*)`/g, (_, a, b) => {
+    inner.push(a ?? b);
+    return ' $SUBST ';
+  });
+  const segs = [];
+  let cur = '';
+  let q = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (q === '"' && c === '\\' && i + 1 < text.length) {
+        cur += c + text[++i];
+        continue;
+      }
+      if (c === q) q = null;
+      cur += c;
+      continue;
     }
-    if (!eco) continue;
+    if (c === '\\' && i + 1 < text.length) {
+      cur += c + text[++i];
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      q = c;
+      cur += c;
+      continue;
+    }
+    if (';&|\n()'.includes(c)) {
+      segs.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += c;
+  }
+  segs.push(cur);
+  return [...segs, ...inner];
+}
+
+// Shell word splitting: quotes and backslashes are removed anywhere in a word
+// and the pieces concatenated, as the shell does ("n"pm -> npm).
+export function shellWords(seg) {
+  const words = [];
+  let cur = '';
+  let has = false;
+  let q = null;
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i];
+    if (q === "'") {
+      if (c === "'") q = null;
+      else cur += c;
+      continue;
+    }
+    if (q === '"') {
+      if (c === '"') q = null;
+      else if (c === '\\' && '"\\$`'.includes(seg[i + 1] ?? '')) cur += seg[++i];
+      else cur += c;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      q = c;
+      has = true;
+    } else if (c === '\\' && i + 1 < seg.length) {
+      cur += seg[++i];
+      has = true;
+    } else if (/\s/.test(c)) {
+      if (has) words.push(cur);
+      cur = '';
+      has = false;
+    } else {
+      cur += c;
+      has = true;
+    }
+  }
+  if (has) words.push(cur);
+  return words;
+}
+
+// Pull package specs out of a shell command that adds or runs dependencies.
+// Returns an array of specs with an `unparsed` list: install-like arguments
+// whose package cannot be determined (variables, globs, stdin, unknown npm
+// subcommands). Callers should treat a non-empty `unparsed` as "ask".
+export function parseInstallCommand(command, depth = 0) {
+  const specs = [];
+  specs.unparsed = [];
+  const merge = (nested) => {
+    specs.push(...nested);
+    specs.unparsed.push(...nested.unparsed);
+  };
+  for (const seg of shellSegments(command)) {
+    const t = shellWords(seg);
+    let fromStdin = false;
+    let splitString = null;
+    while (t.length) {
+      if (/^\w+=/.test(t[0])) {
+        t.shift();
+        continue;
+      }
+      const w = path.basename(t[0]);
+      if (!WRAPPERS[w]) break;
+      t.shift();
+      while (t.length && t[0].startsWith('-') && t[0] !== '--') {
+        const o = t.shift();
+        if (w === 'env' && (o === '-S' || o === '--split-string')) splitString = t.shift();
+        else if (w === 'env' && o.startsWith('--split-string=')) splitString = o.slice(15);
+        else if (WRAPPERS[w].includes(o)) t.shift();
+      }
+      if (t[0] === '--') t.shift();
+      for (let k = 0; k < (WRAPPER_POSITIONAL[w] || 0); k++) t.shift();
+      if (w === 'xargs') fromStdin = true;
+      while (w === 'env' && t.length && /^\w+=/.test(t[0])) t.shift();
+    }
+    if (splitString && depth < 3) merge(parseInstallCommand(splitString, depth + 1));
+    if (!t.length) continue;
+    const tool = path.basename(t[0]);
+    if (t[0].includes('$') && INSTALL_WORDS.test(seg)) {
+      specs.unparsed.push(`${t[0]} (command name not known)`);
+      continue;
+    }
+    if (SHELLS.has(tool) || tool === 'eval') {
+      const at = tool === 'eval' ? 1 : t.findIndex((x, i) => i > 0 && /^-\w*c\w*$/.test(x)) + 1;
+      if (depth < 3 && at > 0 && t[at]) merge(parseInstallCommand(tool === 'eval' ? t.slice(1).join(' ') : t[at], depth + 1));
+      continue;
+    }
+    let found;
+    if (RUNNERS.has(tool)) found = { eco: tool === 'uvx' ? 'PyPI' : 'npm', ...runnerArgs(t.slice(1)) };
+    else {
+      let i = 1;
+      while (i < t.length && t[i].startsWith('-') && !(/^python[\d.]*$/.test(tool) && t[i] === '-m')) {
+        if (VALUE_OPTS.has(t[i])) i++;
+        i++;
+      }
+      found = classifyInstall(tool, t[i], t.slice(i + 1));
+    }
+    if (!found) continue;
+    if (found.unknown) {
+      specs.unparsed.push(found.unknown);
+      continue;
+    }
+    const { eco, args, runner, explicit } = found;
+    if (!args.length) {
+      if (fromStdin || found.needsArg) specs.unparsed.push(`${tool} (package not named)`);
+      continue;
+    }
     for (const a of args) {
-      if (/^(\.|\/|~|file:|git[+:]|https?:|link:|workspace:)/.test(a) || a.endsWith('.tgz') || a.endsWith('.whl')) continue;
+      if (DYNAMIC.test(a)) {
+        specs.unparsed.push(a);
+        continue;
+      }
+      if (SKIP_ARG.test(a) || a.endsWith('.tgz') || a.endsWith('.whl')) continue;
       if (eco === 'npm' && !a.startsWith('@') && a.includes('/')) continue; // github shorthand
       const spec = parseSpec(a, eco);
-      if (spec) specs.push(spec);
+      if (spec) specs.push(runner ? { ...spec, runner: true, explicit: Boolean(explicit) } : spec);
+      else specs.unparsed.push(a);
     }
   }
   return specs;
+}
+
+const RUNNERS = new Set(['npx', 'bunx', 'pnpx', 'uvx']);
+const positional = (list) => list.filter((x) => !x.startsWith('-'));
+
+// Packages a runner will fetch: every --package/-p/--from/--with value, else
+// the first positional word (the package that provides the command).
+function runnerArgs(list) {
+  const pkgs = [];
+  let first = null;
+  for (let i = 0; i < list.length; i++) {
+    const x = list[i];
+    if (x === '--') {
+      first ??= list[i + 1] ?? null;
+      break;
+    }
+    const eq = x.match(/^--(package|from|with)=(.+)$/);
+    if (eq) pkgs.push(eq[2]);
+    else if (['--package', '-p', '--from', '--with'].includes(x)) {
+      if (list[i + 1]) pkgs.push(list[++i]);
+    } else if (VALUE_OPTS.has(x) || x === '-c' || x === '--call' || x === '--python') i++;
+    else if (!x.startsWith('-')) {
+      first = x;
+      break;
+    }
+  }
+  return { args: pkgs.length ? pkgs : first ? [first] : [], runner: true, explicit: pkgs.length > 0, needsArg: true };
+}
+
+// `npm init foo` / `pnpm create @scope/foo` fetch and run an initializer
+// package: foo -> create-foo, @scope -> @scope/create, @scope/foo -> @scope/create-foo.
+export function initializerPackage(spec) {
+  const m = spec.match(/^(@[^/@]+)(?:\/([^@]+))?(@.+)?$/);
+  if (m) return `${m[1]}/create${m[2] ? `-${m[2]}` : ''}${m[3] || ''}`;
+  const at = spec.indexOf('@', 1);
+  return at > 0 ? `create-${spec.slice(0, at)}${spec.slice(at)}` : `create-${spec}`;
+}
+
+function classifyInstall(tool, sub, rest) {
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(tool)) {
+    if (sub === undefined) return null;
+    if (NPM_INSTALL.has(sub) || (tool === 'npm' && ['install-test', 'it'].includes(sub))) return { eco: 'npm', args: positional(rest) };
+    // Linking a registry name installs it globally when it is not linked yet.
+    if (tool === 'npm' && ['link', 'ln'].includes(sub)) return { eco: 'npm', args: positional(rest) };
+    if (sub === 'create' || (tool === 'npm' && ['init', 'innit'].includes(sub))) {
+      const first = positional(rest)[0];
+      if (!first) return null; // plain `npm init` only writes package.json
+      if (DYNAMIC.test(first)) return { eco: 'npm', args: [first] };
+      // bun/yarn create also take GitHub templates (user/repo); those are skipped like other shorthands.
+      return { eco: 'npm', args: [first.startsWith('@') || !first.includes('/') ? initializerPackage(first) : first], runner: true, explicit: true };
+    }
+    if (tool === 'yarn' && sub === 'global' && rest[0] === 'add') return { eco: 'npm', args: positional(rest.slice(1)) };
+    if ((tool === 'npm' && ['exec', 'x'].includes(sub)) || (['pnpm', 'yarn'].includes(tool) && sub === 'dlx') || (tool === 'bun' && sub === 'x')) {
+      return { eco: 'npm', ...runnerArgs(rest) };
+    }
+    // pnpm/yarn/bun run package scripts by bare name, so only npm's unknowns are suspicious.
+    if (tool === 'npm' && !NPM_SAFE.has(sub)) return { unknown: `npm ${sub} (unrecognized subcommand)` };
+    return null;
+  }
+  if (tool === 'composer' && ['require', 'req', 'r'].includes(sub)) return { eco: 'Packagist', args: positional(rest).filter((x) => x.includes('/') || DYNAMIC.test(x)) };
+  if (/^pip[\d.]*$/.test(tool) && sub === 'install') return { eco: 'PyPI', args: pipArgs(rest) };
+  if (/^python[\d.]*$/.test(tool) && sub === '-m' && /^pip[\d.]*$/.test(rest[0] || '') && rest[1] === 'install') return { eco: 'PyPI', args: pipArgs(rest.slice(2)) };
+  if (tool === 'uv' && sub === 'add') return { eco: 'PyPI', args: pipArgs(rest) };
+  if (tool === 'uv' && sub === 'pip' && rest[0] === 'install') return { eco: 'PyPI', args: pipArgs(rest.slice(1)) };
+  if (tool === 'uv' && sub === 'tool' && ['install', 'run'].includes(rest[0])) return { eco: 'PyPI', ...runnerArgs(rest.slice(1)) };
+  if (tool === 'pipx' && ['install', 'run'].includes(sub)) return { eco: 'PyPI', ...runnerArgs(rest) };
+  if (['poetry', 'pdm'].includes(tool) && sub === 'add') return { eco: 'PyPI', args: pipArgs(rest) };
+  if (tool === 'pipenv' && sub === 'install') return { eco: 'PyPI', args: pipArgs(rest) };
+  if (tool === 'cargo' && ['add', 'install'].includes(sub)) return { eco: 'crates.io', args: positional(rest) };
+  if (tool === 'go' && ['get', 'install'].includes(sub)) return { eco: 'Go', args: positional(rest).filter((x) => (x.includes('.') && !x.startsWith('.')) || DYNAMIC.test(x)) };
+  if ((tool === 'gem' && sub === 'install') || (tool === 'bundle' && sub === 'add')) {
+    const vi = rest.findIndex((x) => x === '-v' || x === '--version');
+    const args = positional(rest.filter((_, k) => vi < 0 || k !== vi + 1));
+    if (vi >= 0 && args[0] && rest[vi + 1]) args[0] = `${args[0]}@${rest[vi + 1]}`;
+    return { eco: 'RubyGems', args };
+  }
+  if (tool === 'dotnet' && sub === 'add' && rest[0] === 'package') return { eco: 'NuGet', args: positional(rest.slice(1)).slice(0, 1) };
+  if (['dart', 'flutter'].includes(tool) && sub === 'pub' && rest[0] === 'add') return { eco: 'Pub', args: positional(rest.slice(1)) };
+  return null;
 }
 
 function pipArgs(list) {
@@ -1742,7 +2019,11 @@ async function main(argv) {
       cmd === 'accept'
         ? acceptFindings(ledger, refs, { reason: String(opts.reason), until, pkg: opts.package })
         : reopenFindings(ledger, refs, { pkg: opts.package });
-    if (!matched.length) return console.error(`No open finding matches ${refs.join(', ')}. Run: status`), EXIT.ERROR;
+    if (!matched.length) {
+      const malicious = cmd === 'accept' && refs.some((r) => matchEntries(ledger, r, opts.package).some((e) => e.level === 'MALICIOUS'));
+      console.error(malicious ? 'Malicious findings cannot be accepted. Treat them as an incident: see references/incident-response.md.' : `No open finding matches ${refs.join(', ')}. Run: status`);
+      return EXIT.ERROR;
+    }
     saveLedger(file, ledger);
     for (const e of matched) console.log(`${cmd === 'accept' ? 'Accepted' : 'Reopened'}: ${e.package} ${e.installed} ${e.id}${until ? ` until ${day(until)}` : ''}`);
     return EXIT.OK;

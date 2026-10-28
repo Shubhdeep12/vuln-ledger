@@ -107,7 +107,7 @@ lockfiles ──► inventory ──► OSV.dev querybatch ──► advisory de
 
 - **One script, zero dependencies**: `skills/vuln-ledger/scripts/vuln-ledger.mjs`, Node 18+. No scanner to install. Uses `osv-scanner` instead when you ask (`--engine osv-scanner`).
 - **Ecosystems**: Composer, npm/pnpm/Yarn/Bun, pip/Poetry/uv/PDM/Pipenv, Go (incl. stdlib), Cargo, Bundler, Maven/Gradle, NuGet, Dart/Flutter, Hex.
-- **Read-only** on your project. It writes only its ledger (`~/.local/state/vuln-ledger/`, or a shared `.vuln-ledger.json` you opt into).
+- **Read-only** on your project. It writes only its ledger (`~/.local/state/vuln-ledger/`, or a shared in-repo `.vuln-ledger.json` that is used only with `VULN_LEDGER_SHARED=1`).
 - **Never claims clean on failure**: a timeout or API error is reported as "check incomplete", and never produces a false "resolved".
 
 ## Commands

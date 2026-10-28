@@ -453,4 +453,6 @@ last 48 hours. Approve it in the prompt, or set `VULN_LEDGER_COOLDOWN=0` to
 drop the age check.
 
 **Team wants shared decisions.** Copy the ledger to `.vuln-ledger.json` in the
-repo root and commit it. All checkouts then use it.
+repo root and commit it, then set `VULN_LEDGER_SHARED=1` on each machine that
+should trust it. It is ignored without that variable, so a cloned repo cannot
+silence findings on its own.

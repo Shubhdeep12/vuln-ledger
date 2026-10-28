@@ -129,6 +129,7 @@ Then continue the task. The finding stays silent until the acceptance expires
 or the finding escalates (higher severity, exploited, malicious). Use the
 duration the user gives; default 30 days. Only run `accept` after the user has
 actually declined. Never accept on their behalf to make output quieter.
+Malicious findings cannot be accepted; the tool refuses.
 
 ## Adding a package
 

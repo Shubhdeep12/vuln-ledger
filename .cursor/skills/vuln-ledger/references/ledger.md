@@ -12,8 +12,11 @@ One JSON file per project:
 Overrides, highest first:
 
 1. `--ledger FILE`
-2. `.vuln-ledger.json` in the project root, if it exists. Create it (copy the
-   default file there) to share accepted risks with a team through git.
+2. `.vuln-ledger.json` in the project root, **only when `VULN_LEDGER_SHARED=1`**
+   is set in your environment. Use it to share accepted risks with a team
+   through git. It is off by default because anyone who can commit to the repo
+   could otherwise pre-mark findings as reported or accepted. Even when on,
+   entries are validated and malicious findings can never be accepted.
 3. `VULN_LEDGER_HOME` moves the whole state directory (useful in CI caches).
 
 Advisory details, the CISA KEV list, and EPSS scores are cached under
@@ -53,6 +56,10 @@ is reported as `still-affected` rather than as a new finding.
   lockfiles never produce false "resolved" events.
 - Republished or re-modified advisories do not count as new: the key already
   exists.
+- Malicious findings cannot be accepted, and are re-mentioned daily (not
+  weekly) until they are resolved.
+- Package names and versions from lockfiles are validated before use; entries
+  with spaces, newlines, or markup are skipped and counted in a note.
 
 ## What leaves the machine
 
