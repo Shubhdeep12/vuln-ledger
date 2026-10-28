@@ -1,6 +1,6 @@
 {
   "name": "vuln-ledger",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Dependency vulnerability and malicious-package guard with a memory: checks lockfiles against OSV at session start, vets packages before install, and reports only what changed since the last check.",
   "author": {
     "name": "Shubhdeep Chhabra",

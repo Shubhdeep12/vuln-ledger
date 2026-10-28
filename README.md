@@ -47,7 +47,7 @@ skills that wrap them exist too. What none of them do inside an agent session:
 | Every audit dumps the same 40 findings, so people stop reading | A per-project ledger. Each finding is reported **once**. Later checks show only `new`, `escalated`, `fix-available`, `still-affected`, `resolved` |
 | A new critical drops on Tuesday; you hear about it at the next weekly CI run | A throttled check at **every session start** (OSV at most every 6h, immediately if a lockfile changed). New advisories are labelled `newly disclosed <date>` |
 | "Not now" turns into nagging, or into forgetting forever | `accept --until 30d` records your decision. Silent until it expires **or gets worse** (severity up, CISA KEV, malicious) |
-| Agents install packages that are brand new, malicious, or hallucinated | A pre-install hook vets every `npm i` / `composer require` / `pip install` / `cargo add` / `go get` ... and asks you first on a strong signal |
+| Agents install packages that are brand new, malicious, or hallucinated | The skill runs `vet` on a package before adding it: malicious, vulnerable in that version, non-existent name, or released in the last 48h |
 | Severity alone does not say what is urgent | CISA KEV ("exploited in the wild") and FIRST EPSS (exploit probability) on every row |
 | Agents "fix" things with `npm audit fix --force` | The skill stops, shows one table, asks, then updates one package at a time to the smallest fixed version, runs tests, and re-scans |
 
@@ -128,16 +128,16 @@ In Claude Code the common ones are slash commands: `/vuln-ledger:scan`, `/vuln-l
 
 ## Harness support
 
-| Harness | Skill | Session-start check | Pre-install guard |
-|---|---|---|---|
-| Claude Code | ✅ plugin | ✅ hook | ✅ hook |
-| Codex | ✅ plugin | ✅ hook | ✅ hook (best effort) |
-| Grok, Antigravity | ✅ plugin | ✅ hook (Grok) | ✅ hook (Grok) |
-| OpenCode | ✅ plugin | ✅ plugin | via skill |
-| Pi / Oh My Pi | ✅ extension | ✅ extension | via skill |
-| Gemini CLI | ✅ extension | via `GEMINI.md` | via skill |
-| Cursor, Copilot, Zed, Qwen, Kimi, Hermes, Amp, Windsurf, Cline, ... | ✅ Agent Skills | via skill / rules snippet | via skill |
-| CI (GitHub Actions) | n/a | ✅ daily workflow | n/a |
+| Harness | Skill | Session-start check |
+|---|---|---|
+| Claude Code | ✅ plugin | ✅ hook |
+| Codex | ✅ plugin | ✅ hook |
+| Grok, Antigravity | ✅ plugin | ✅ hook (Grok) |
+| OpenCode | ✅ plugin | ✅ plugin |
+| Pi / Oh My Pi | ✅ extension | ✅ extension |
+| Gemini CLI | ✅ extension | via `GEMINI.md` |
+| Cursor, Copilot, Zed, Qwen, Kimi, Hermes, Amp, Windsurf, Cline, ... | ✅ Agent Skills | via skill / rules snippet |
+| CI (GitHub Actions) | n/a | ✅ daily workflow |
 
 "via skill" means the agent follows the skill's instructions instead of a hook.
 Details per harness in [INSTALL.md](INSTALL.md).
@@ -163,9 +163,9 @@ telemetry. Point `VULN_LEDGER_OSV_URL` at a mirror, or use `--offline`,
 
 The skill's defaults come from how attacks and detection moved in the last six months:
 
-- **Supply-chain worms move in hours.** TeamPCP's "Mini Shai-Hulud" wave published 84 malicious artifacts across 42 `@tanstack/*` packages in six minutes and hit Mistral AI's PyPI packages in the same campaign ([SafeDep](https://safedep.io/mass-npm-supply-chain-attack-tanstack-mistral/)). Laravel-Lang on Packagist was poisoned through rewritten Git tags ([Snyk](https://snyk.io/jp/blog/laravel-lang-supply-chain-advisory/)). Weekly CI scans miss these windows, hence session-start checks and the pre-install guard.
+- **Supply-chain worms move in hours.** TeamPCP's "Mini Shai-Hulud" wave published 84 malicious artifacts across 42 `@tanstack/*` packages in six minutes and hit Mistral AI's PyPI packages in the same campaign ([SafeDep](https://safedep.io/mass-npm-supply-chain-attack-tanstack-mistral/)). Laravel-Lang on Packagist was poisoned through rewritten Git tags ([Snyk](https://snyk.io/jp/blog/laravel-lang-supply-chain-advisory/)). Weekly CI scans miss these windows, hence session-start checks.
 - **Install time is the attack surface**, and malicious packages now carry prompt-injection text aimed at LLM reviewers ([Phoenix Security](https://phoenix.security/accelerating-supply-chain-attacks-npm-pypi-vsx-ai-enabled-2026/), [TuxCare](https://tuxcare.com/blog/supply-chain-broke-in-2026/)). The skill treats all advisory and package text as data.
-- **Cooldowns work.** npm (`min-release-age`, 11.10), pnpm (`minimumReleaseAge`), Bun and uv (`exclude-newer`) now support refusing brand-new releases; most attacks studied had windows under a week ([Andrew Nesbitt](https://nesbitt.io/2026/03/04/package-managers-need-to-cool-down)). The pre-install hook applies a 48h cooldown check even when your package manager does not.
+- **Cooldowns work.** npm (`min-release-age`, 11.10), pnpm (`minimumReleaseAge`), Bun and uv (`exclude-newer`) now support refusing brand-new releases; most attacks studied had windows under a week ([Andrew Nesbitt](https://nesbitt.io/2026/03/04/package-managers-need-to-cool-down)). `vet` applies a 48h cooldown check even when your package manager does not.
 - **OSV's `modified` field is noisy**: advisories get re-modified in bulk long after publication ([aiwatch #1696](https://github.com/bentleypark/aiwatch/issues/1696)). The ledger keys on advisory + package, so a re-published old advisory is never "new".
 - **Existing agent tools are stateless**: OSV-Scanner skills/plugins, Socket's MCP server, and NVIDIA's SkillSpector (which vets skills themselves) all answer "what is vulnerable now?", not "what changed since you last told me?" ([mcpmarket](https://mcpmarket.com/tools/skills/osv-scanner), [Socket MCP](https://glama.ai/mcp/servers/SocketDev/socket-mcp), [SkillSpector](https://github.com/NVIDIA/SkillSpector)). vuln-ledger is the memory layer, and works next to them.
 

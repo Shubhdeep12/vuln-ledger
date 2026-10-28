@@ -68,7 +68,7 @@ is reported as `still-affected` rather than as a new finding.
 | `api.osv.dev` | package names and versions from lockfiles | `scan`, `vet`, `advisory` |
 | `cisa.gov` KEV feed | nothing (download) | at most daily, if findings have CVEs |
 | `api.first.org` EPSS | CVE IDs | at most daily per CVE |
-| npm / PyPI / Packagist / crates.io / RubyGems / Go proxy | the package name being vetted | `vet` and the pre-install hook |
+| npm / PyPI / Packagist / crates.io / RubyGems / Go proxy | the package name being vetted | `vet` |
 
 Use `--offline`, `--no-kev`, `--no-epss`, or point `VULN_LEDGER_OSV_URL` at an
 internal mirror if that is a concern.

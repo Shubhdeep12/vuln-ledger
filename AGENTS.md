@@ -32,7 +32,7 @@ appear in documentation; run only what the user-approved task needs.
 | Engine | `skills/vuln-ledger/scripts/vuln-ledger.mjs` | Zero-dependency CLI and library: parsing, OSV, ledger, rendering, vetting |
 | References | `skills/vuln-ledger/references/` | Ecosystem commands, incident playbook, ledger format |
 | Skill mirror | `.cursor/skills/vuln-ledger/` | Generated copy. Never edit; run `npm run sync` |
-| Hooks | `hooks/hooks.json`, `hooks/session-start.mjs`, `hooks/pre-install.mjs` | Claude Code / Codex / Grok automation |
+| Hooks | `hooks/hooks.json`, `hooks/session-start.mjs` | Claude Code / Codex / Grok automation |
 | Claude and Codex metadata | `.claude-plugin/`, `.codex-plugin/`, `.agents/plugins/`, `skills/vuln-ledger/agents/openai.yaml` | Plugin manifests and marketplaces |
 | OpenCode | `.opencode/` | Plugin (V1 + V2) and `/vuln-ledger` command |
 | Pi and OMP | `package.json` (`pi`, `omp`), `extensions/vuln-ledger.ts` | Native extension |
@@ -46,7 +46,7 @@ appear in documentation; run only what the user-approved task needs.
 
 | Runtime | Read first |
 | --- | --- |
-| Claude Code | `.claude-plugin/plugin.json`, `commands/`, `hooks/hooks.json`, `hooks/session-start.mjs`, `hooks/pre-install.mjs` |
+| Claude Code | `.claude-plugin/plugin.json`, `commands/`, `hooks/hooks.json`, `hooks/session-start.mjs` |
 | Codex | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `skills/vuln-ledger/agents/openai.yaml` |
 | Grok, Antigravity | `plugin.json`, `hooks/hooks.json` |
 | OpenCode | `.opencode/plugins/vuln-ledger.mjs`, `.opencode/command/vuln-ledger.md` |

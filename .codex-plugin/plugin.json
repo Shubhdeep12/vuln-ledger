@@ -1,6 +1,6 @@
 {
   "name": "vuln-ledger",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Dependency vulnerability and malicious-package guard with a memory for Codex: OSV checks at session start, package vetting before install, and change-only reports.",
   "author": {
     "name": "Shubhdeep Chhabra",

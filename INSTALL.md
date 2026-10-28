@@ -1,8 +1,7 @@
 # How to install
 
 Every route installs the same skill (`skills/vuln-ledger/`). Harnesses with
-hooks or extensions also get the automatic session-start check and, where
-supported, the pre-install guard. Node 18.17+ must be on `PATH` for the script.
+hooks or extensions also get the automatic session-start check. Node 18.17+ must be on `PATH` for the script.
 
 Jump to: [Claude Code](#claude-code) · [Codex](#codex) · [Cursor](#cursor) ·
 [Gemini CLI](#gemini-cli) · [GitHub Copilot](#github-copilot) ·
@@ -48,7 +47,6 @@ Restart Claude Code. You get:
 - the `vuln-ledger` skill (auto-invoked when dependencies or security come up)
 - commands: `/vuln-ledger:scan`, `/vuln-ledger:vet <eco:pkg>`, `/vuln-ledger:status`
 - a `SessionStart` hook: throttled scan, silent unless something changed
-- a `PreToolUse` hook on Bash: vets packages before `npm i`, `composer require`, `pip install`, etc.
 
 ### Verify
 
@@ -435,7 +433,7 @@ there is an Action needed section".
    because its rules file tells it to.
 
 Tune with environment variables: `VULN_LEDGER_MAX_AGE` (default `6h`),
-`VULN_LEDGER_COOLDOWN` (default `48h`), `VULN_LEDGER_DISABLE=1`,
+`VULN_LEDGER_DISABLE=1`,
 `VULN_LEDGER_HOME` (state directory), `VULN_LEDGER_OSV_URL` (mirror).
 
 ## Troubleshooting
@@ -447,11 +445,6 @@ to see the ledger. `doctor` shows paths and connectivity.
 **`node: command not found` in hooks.** Hooks need Node 18.17+ on the `PATH`
 the harness uses. Without Node, the skill falls back to native scanners
 (`composer audit`, `npm audit`, ...) without the ledger.
-
-**The pre-install hook asked about a package I trust.** It asks only on:
-malicious, high/critical in that version, name not found, or released in the
-last 48 hours. Approve it in the prompt, or set `VULN_LEDGER_COOLDOWN=0` to
-drop the age check.
 
 **Team wants shared decisions.** Copy the ledger to `.vuln-ledger.json` in the
 repo root and commit it, then set `VULN_LEDGER_SHARED=1` on each machine that

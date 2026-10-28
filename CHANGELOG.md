@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-28)
+
+- Removed the pre-install hook. It guessed packages from shell command text, which misread common commands (`npm i vite 2>&1` was read as a package named `2`) and caused false prompts, including in auto mode. Package checks now happen through the skill: the agent runs `vet` before adding a package and `scan` after dependencies change, and the session-start check catches any lockfile change. `VULN_LEDGER_COOLDOWN` is gone; use `vet --cooldown`.
+
 ## 0.2.0 (2026-10-28)
 
 - Claude Code slash commands: `/vuln-ledger:scan`, `/vuln-ledger:vet`, `/vuln-ledger:status`.

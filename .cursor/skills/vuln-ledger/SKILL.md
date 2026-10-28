@@ -5,7 +5,7 @@ license: MIT
 metadata:
   tags: "Security, Dependencies, CVE, Supply Chain, OSV, SCA"
   category: "security"
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # vuln-ledger

@@ -1,6 +1,6 @@
 {
   "name": "vuln-ledger",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Dependency vulnerability and malicious-package guard with a memory, for AI coding agents and the terminal.",
   "license": "MIT",
   "homepage": "https://github.com/Shubhdeep12/vuln-ledger",

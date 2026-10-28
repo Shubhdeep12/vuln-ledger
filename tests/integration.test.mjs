@@ -199,27 +199,6 @@ test('session-start hook prints the delta once and respects opt-out', async () =
   assert.equal(disabled.stdout, '');
 });
 
-test('pre-install hook asks before installing malicious or brand-new packages, stays silent otherwise', async () => {
-  const env = freshEnv();
-  const hook = path.join(ROOT, 'hooks', 'pre-install.mjs');
-  const call = (command) => run([hook], { env, input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }) });
-
-  const evil = await call('npm install evil-pkg');
-  const out = JSON.parse(evil.stdout);
-  assert.equal(out.hookSpecificOutput.permissionDecision, 'ask');
-  assert.match(out.hookSpecificOutput.permissionDecisionReason, /MALICIOUS/);
-
-  const fresh = JSON.parse((await call('npm i fresh-pkg')).stdout);
-  assert.match(fresh.hookSpecificOutput.permissionDecisionReason, /published/);
-
-  const missing = JSON.parse((await call('npm i not-a-real-pkg')).stdout);
-  assert.match(missing.hookSpecificOutput.permissionDecisionReason, /does not exist/);
-
-  assert.equal((await call('npm i good-pkg')).stdout, '');
-  assert.equal((await call('ls -la && git status')).stdout, '');
-  assert.equal((await run([hook], { env, input: 'not json' })).code, 0);
-});
-
 test('advisory reports whether the project is affected', async () => {
   const env = freshEnv();
   const cwd = makeProject();
@@ -227,35 +206,4 @@ test('advisory reports whether the project is affected', async () => {
   assert.equal(hit.code, 20);
   assert.match(hit.stdout, /IS affected/);
   assert.match(hit.stdout, /leftish 1\.0\.0 .* fix 1\.0\.5/);
-});
-
-test('pre-install hook asks when it cannot tell which package is installed', async () => {
-  const env = freshEnv();
-  const hook = path.join(ROOT, 'hooks', 'pre-install.mjs');
-  const call = (command) => run([hook], { env, input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }) });
-  const dynamic = JSON.parse((await call('npm i $PKG')).stdout);
-  assert.equal(dynamic.hookSpecificOutput.permissionDecision, 'ask');
-  assert.match(dynamic.hookSpecificOutput.permissionDecisionReason, /Could not tell/);
-  const hidden = JSON.parse((await call('ls\nenv X=1 npm --prefix . install evil-pkg')).stdout);
-  assert.match(hidden.hookSpecificOutput.permissionDecisionReason, /MALICIOUS/);
-  const many = Array.from({ length: 25 }, (_, i) => `good-pkg-${i}`).join(' ');
-  const capped = JSON.parse((await call(`npm i ${many}`)).stdout);
-  assert.match(capped.hookSpecificOutput.permissionDecisionReason, /only the first 20 were vetted/);
-});
-
-test('pre-install hook exempts a runner only for the exact locally installed package', async () => {
-  const env = freshEnv();
-  const hook = path.join(ROOT, 'hooks', 'pre-install.mjs');
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'vl-runner-'));
-  fs.mkdirSync(path.join(cwd, 'node_modules', '.bin'), { recursive: true });
-  fs.writeFileSync(path.join(cwd, 'node_modules', '.bin', 'evil-pkg'), '');
-  const call = (command) => run([hook], { env, input: JSON.stringify({ tool_name: 'Bash', cwd, tool_input: { command } }) });
-  // A bin named like the package is not enough: the package itself must be installed.
-  assert.match(JSON.parse((await call('npx evil-pkg')).stdout).hookSpecificOutput.permissionDecisionReason, /MALICIOUS/);
-  fs.mkdirSync(path.join(cwd, 'node_modules', 'evil-pkg'), { recursive: true });
-  fs.writeFileSync(path.join(cwd, 'node_modules', 'evil-pkg', 'package.json'), JSON.stringify({ name: 'evil-pkg' }));
-  assert.equal((await call('npx evil-pkg')).stdout, '');
-  // A version or --package always fetches from the registry, so it is always vetted.
-  assert.match(JSON.parse((await call('npx evil-pkg@1.0.0')).stdout).hookSpecificOutput.permissionDecisionReason, /MALICIOUS/);
-  assert.match(JSON.parse((await call('npx -p evil-pkg x')).stdout).hookSpecificOutput.permissionDecisionReason, /MALICIOUS/);
 });
